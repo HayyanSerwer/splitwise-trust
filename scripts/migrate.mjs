@@ -28,13 +28,22 @@ const schema = await readFile(new URL('db/schema.sql', root), 'utf8');
 
 // Split on semicolons at end of line; the schema has no functions or strings
 // containing one, so this is sufficient and avoids pulling in a SQL parser.
+// Leading comment lines are stripped rather than used to skip a chunk — a
+// commented statement is still a statement, and dropping it leaves the schema
+// half-built.
 const statements = schema
   .split(/;\s*$/m)
-  .map((s) => s.trim())
-  .filter((s) => s && !s.startsWith('--'));
+  .map((s) => s.replace(/^(\s*--[^\n]*\n)+/, '').trim())
+  .filter(Boolean);
+
+// The HTTP driver is tagged-template only — it has no .query() — so hand it
+// the shape a tagged template would: a strings array carrying .raw, and no
+// interpolated values. Safe here because these statements come from a file in
+// the repo, never from user input.
+const asTemplate = (text) => Object.assign([text], { raw: [text] });
 
 for (const statement of statements) {
-  await sql.query(statement);
+  await sql(asTemplate(statement));
   console.log('✓', statement.split('\n')[0].slice(0, 70));
 }
 
