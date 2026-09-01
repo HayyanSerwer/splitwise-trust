@@ -114,3 +114,5 @@ input[type="search"] { width: 100%; }
 .line .amount { font-variant-numeric: tabular-nums; font-weight: 600; }
 .line .amount.up { color: #4ade80; }
 .line .amount.down { color: #f87171; }
+
+.pill-avatar { width: 24px; height: 24px; border-radius: 50%; flex: none; background: var(--line); }

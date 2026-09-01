@@ -23,10 +23,10 @@ Two credentials do two different jobs:
 
 ## Money
 
-Amounts are integer paise end to end (`lib/money.js`); no float ever touches an
+Amounts are integer cents end to end (`lib/money.js`); no float ever touches an
 amount. Splits use largest-remainder allocation, so the parts sum to exactly
-the total — ₹1000 across three people is 333.34 / 333.33 / 333.33, never
-₹999.99.
+the total — €1000 across three people is 333.34 / 333.33 / 333.33, never
+€999.99.
 
 Balances are always derived from the ledger (`lib/balances.js`), never stored.
 `simplify()` reduces the tangle of pairwise debts to the fewest transfers that
@@ -75,7 +75,7 @@ would exhaust Postgres' connection limit.
 ## Layout
 
 ```
-lib/money.js      paise parsing, formatting, largest-remainder allocation
+lib/money.js      cent parsing, formatting, largest-remainder allocation
 lib/balances.js   net positions and debt simplification
 lib/ledger.js     loads a group's expenses + settlements, derives the summary
 lib/guard.js      session, guild and group access checks

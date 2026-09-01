@@ -47,4 +47,32 @@ for (const statement of statements) {
   console.log('✓', statement.split('\n')[0].slice(0, 70));
 }
 
+// `create table if not exists` leaves an existing table untouched, so a column
+// that was renamed in schema.sql has to be renamed on the live table too.
+// Guarded by information_schema rather than a DO block, because the statement
+// splitter above would cut a $$ body in half at its first semicolon.
+const renames = [
+  ['expenses', 'amount_paise', 'amount_cents'],
+  ['expense_shares', 'amount_paise', 'amount_cents'],
+  ['settlements', 'amount_paise', 'amount_cents'],
+];
+
+for (const [table, from, to] of renames) {
+  const [found] = await sql`
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = ${table} and column_name = ${from}
+  `;
+  if (found) {
+    await sql(asTemplate(`alter table ${table} rename column ${from} to ${to}`));
+    console.log(`\u2713 ${table}.${from} -> ${to}`);
+  }
+}
+
+// Groups created before the switch still say INR; the stored integers are
+// minor units either way, so only the label changes.
+const relabelled = await sql`
+  update groups set currency = 'EUR' where currency <> 'EUR' returning id
+`;
+if (relabelled.length) console.log(`\u2713 ${relabelled.length} group(s) relabelled to EUR`);
+
 console.log(`\nSchema applied (${statements.length} statements).`);
