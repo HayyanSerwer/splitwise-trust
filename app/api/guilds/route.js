@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
-import { asBot, asUser } from '@/lib/discord';
+import { asBot, userGuilds } from '@/lib/discord';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +11,7 @@ export async function GET() {
   try {
     // Only servers where both the visitor and the bot are present are usable.
     const [mine, botGuilds] = await Promise.all([
-      asUser('/users/@me/guilds', session.accessToken),
+      userGuilds(session.accessToken),
       asBot('/users/@me/guilds'),
     ]);
 
