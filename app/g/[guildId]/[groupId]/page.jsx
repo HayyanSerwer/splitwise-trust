@@ -49,14 +49,14 @@ export default function GroupPage({ params }) {
               <span>
                 <strong>{nameOf(t.fromUserId)}</strong> pays <strong>{nameOf(t.toUserId)}</strong>
               </span>
-              <span className="amount">{formatAmount(t.amountPaise, group.currency)}</span>
+              <span className="amount">{formatAmount(t.amountCents, group.currency)}</span>
               <button
                 className="btn ghost"
                 onClick={async () => {
                   await post(`/api/groups/${groupId}/settle`, {
                     fromUserId: t.fromUserId,
                     toUserId: t.toUserId,
-                    amount: (t.amountPaise / 100).toFixed(2),
+                    amount: (t.amountCents / 100).toFixed(2),
                   });
                   await load();
                   flash('Marked as paid');
@@ -93,7 +93,7 @@ export default function GroupPage({ params }) {
               <strong>{e.description}</strong>
               <span className="note"> · {nameOf(e.payerId)} paid · split {e.shares.length} ways</span>
             </span>
-            <span className="amount">{formatAmount(e.amountPaise, group.currency)}</span>
+            <span className="amount">{formatAmount(e.amountCents, group.currency)}</span>
             <button
               className="btn ghost"
               onClick={async () => {
@@ -113,7 +113,7 @@ export default function GroupPage({ params }) {
             <span className="note">
               {nameOf(s.fromUserId)} paid {nameOf(s.toUserId)}
             </span>
-            <span className="amount">{formatAmount(s.amountPaise, group.currency)}</span>
+            <span className="amount">{formatAmount(s.amountCents, group.currency)}</span>
           </div>
         ))}
       </div>

@@ -20,7 +20,7 @@ export const POST = route(async (request, { params }) => {
   if (fromUserId === toUserId) throw httpError('Pick two different people', 400);
 
   const [row] = await db()`
-    insert into settlements (group_id, from_user_id, to_user_id, amount_paise, created_by)
+    insert into settlements (group_id, from_user_id, to_user_id, amount_cents, created_by)
     values (${group.id}, ${fromUserId}, ${toUserId}, ${parseAmount(amount)}, ${session.userId})
     returning id
   `;

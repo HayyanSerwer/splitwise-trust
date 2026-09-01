@@ -13,7 +13,7 @@ function buildEmbed(group, summary) {
 
   const owed = summary.transfers.length
     ? summary.transfers
-        .map((t) => `${name(t.fromUserId)} → ${name(t.toUserId)} · **${formatAmount(t.amountPaise, group.currency)}**`)
+        .map((t) => `${name(t.fromUserId)} → ${name(t.toUserId)} · **${formatAmount(t.amountCents, group.currency)}**`)
         .join('\n')
     : '_Everyone is square._';
 
