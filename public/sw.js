@@ -1,5 +1,5 @@
 // Bump to drop old caches after changing what gets precached.
-const CACHE = 'hisaab-v1';
+const CACHE = 'hisaab-v2';
 const OFFLINE_URL = '/offline.html';
 
 self.addEventListener('install', (event) => {
