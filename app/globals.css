@@ -16,6 +16,9 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Keep content clear of the notch / home bar when installed as an app. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 a { color: inherit; }
