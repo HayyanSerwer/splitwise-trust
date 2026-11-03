@@ -1,8 +1,11 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
-import { formatAmount } from '@/lib/money';
+import { use, useEffect, useMemo, useState } from 'react';
 import { forgetServer, rememberServer } from '@/lib/last-server';
+import {
+  Avatar, Icon, Sheet, SkeletonPage, TopBar,
+  disambiguator, money, postJSON, relation, standing, useRefreshOnFocus,
+} from '../../ui';
 
 export default function GuildPage({ params }) {
   const { guildId } = use(params);
@@ -10,8 +13,7 @@ export default function GuildPage({ params }) {
   const [roster, setRoster] = useState(null);
   const [overview, setOverview] = useState(null);
   const [error, setError] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [pickingPerson, setPickingPerson] = useState(false);
+  const [sheet, setSheet] = useState(null); // 'add' | 'person' | 'group'
 
   async function load() {
     const [g, m, o] = await Promise.all([
@@ -23,7 +25,7 @@ export default function GuildPage({ params }) {
         }
         return r.json();
       }),
-      fetch(`/api/guilds/${guildId}/members`).then((r) => r.json()),
+      roster ? Promise.resolve(roster) : fetch(`/api/guilds/${guildId}/members`).then((r) => r.json()),
       fetch(`/api/guilds/${guildId}/overview`).then((r) => r.json()),
     ]);
     const failed = g.error || m.error || o.error;
@@ -42,152 +44,266 @@ export default function GuildPage({ params }) {
     load().catch((err) => setError(err.message));
   }, [guildId]);
 
+  useRefreshOnFocus(() => load().catch(() => {}));
+
+  const byId = useMemo(() => new Map((roster?.members ?? []).map((m) => [m.id, m])), [roster]);
+  const tag = useMemo(() => disambiguator(roster?.members ?? []), [roster]);
+
   if (error) {
     return (
       <main className="wrap">
+        <TopBar title="Hisaab" back="/" />
         <div className="error">{error}</div>
-        <a className="note" href="/">← all servers</a>
       </main>
     );
   }
-  if (!groups || !roster || !overview) return <main className="wrap"><p className="note">Loading…</p></main>;
+  if (!groups || !roster || !overview) return <SkeletonPage />;
 
+  const me = overview.me;
   const tabs = groups.filter((g) => g.kind === 'direct');
   const realGroups = groups.filter((g) => g.kind !== 'direct');
+  const others = roster.members.filter((m) => m.id !== me);
+
+  // Clicking a person either opens the existing tab or creates it first.
+  async function openPerson(userId, add) {
+    const { id } = await postJSON('/api/direct', { guildId, userId });
+    window.location.href = `/g/${guildId}/${id}${add ? '?add=1' : ''}`;
+  }
 
   return (
     <main className="wrap">
-      <div className="row" style={{ marginBottom: 6 }}>
-        <a className="note" href="/">← all servers</a>
+      <TopBar title={roster.guild.name} back="/" />
+
+      <Summary overview={overview} tag={(id) => tag(byId.get(id) ?? {})} />
+
+      <div className="section-head">
+        <h2>People</h2>
+        <button className="link" onClick={() => setSheet('person')}>+ New</button>
       </div>
-      <h1>{roster.guild.name}</h1>
-      <p className="sub">Your groups and one-to-one tabs in this server.</p>
-
-      <Overview overview={overview} />
-
       <div className="card">
-        <div className="row" style={{ marginBottom: 12 }}>
-          <h2 style={{ margin: 0 }}>People</h2>
-          <div className="spacer" />
-          <button className="btn" onClick={() => setPickingPerson((v) => !v)}>
-            {pickingPerson ? 'Cancel' : 'Add expense with someone'}
-          </button>
-        </div>
-
-        {pickingPerson && (
-          <PickPerson guildId={guildId} members={roster.members.filter((m) => m.id !== overview.me)} />
+        {tabs.length === 0 && (
+          <div className="empty">Add an expense with one person, no group needed.</div>
         )}
-
-        {tabs.length === 0 && !pickingPerson && (
-          <p className="note">No one-to-one tabs yet. Add an expense with someone without making a group.</p>
-        )}
-
-        {tabs.map((t) => (
-          <a key={t.id} className="line" href={`/g/${guildId}/${t.id}`} style={{ textDecoration: 'none' }}>
-            {t.other?.avatar && <img src={t.other.avatar} alt="" className="pill-avatar" />}
-            <span style={{ flex: 1 }}>{t.other?.name ?? t.name}</span>
-            <span className={`amount ${t.my_net > 0 ? 'up' : t.my_net < 0 ? 'down' : ''}`}>
-              {t.my_net === 0
-                ? 'settled'
-                : t.my_net > 0
-                  ? `owes you ${formatAmount(t.my_net)}`
-                  : `you owe ${formatAmount(-t.my_net)}`}
-            </span>
-          </a>
-        ))}
-      </div>
-
-      <div className="card">
-        <div className="row" style={{ marginBottom: 12 }}>
-          <h2 style={{ margin: 0 }}>Groups</h2>
-          <div className="spacer" />
-          <button className="btn" onClick={() => setCreating((v) => !v)}>
-            {creating ? 'Cancel' : 'New group'}
-          </button>
-        </div>
-
-        {creating && (
-          <NewGroup
-            guildId={guildId}
-            members={roster.members}
-            onDone={() => { setCreating(false); load(); }}
-          />
-        )}
-
-        {realGroups.length === 0 && !creating && (
-          <p className="note">No groups yet. Create one to start splitting.</p>
-        )}
-
-        <div className="guilds">
-          {realGroups.map((g) => (
-            <a key={g.id} className="guild" href={`/g/${guildId}/${g.id}`}>
-              <div className="fallback">{g.name.slice(0, 2).toUpperCase()}</div>
-              <div className="meta">
-                <div className="name">{g.name}</div>
-                <div className="hint">{g.member_count} people</div>
+        {tabs.map((t) => {
+          const person = byId.get(t.other?.id) ?? t.other ?? { name: t.name };
+          const r = relation(t.my_net);
+          return (
+            <a key={t.id} className="row-item" href={`/g/${guildId}/${t.id}`}>
+              <Avatar src={person.avatar} name={person.name} />
+              <div className="main">
+                <div className="name">{person.name}</div>
+                <div className={`meta ${r.cls}`}>{tag(person) ? `${tag(person)} · ` : ''}{r.text}</div>
               </div>
+              <Icon name="chevron" className="chev" />
             </a>
-          ))}
-        </div>
+          );
+        })}
       </div>
+
+      <div className="section-head">
+        <h2>Groups</h2>
+        <button className="link" onClick={() => setSheet('group')}>+ New</button>
+      </div>
+      <div className="card">
+        {realGroups.length === 0 && <div className="empty">No groups yet. Make one for a trip or the flat.</div>}
+        {realGroups.map((g) => {
+          const r = relation(g.my_net);
+          return (
+            <a key={g.id} className="row-item" href={`/g/${guildId}/${g.id}`}>
+              <div className="avatar tile">{g.name.slice(0, 1).toUpperCase()}</div>
+              <div className="main">
+                <div className="name">{g.name}</div>
+                <div className="meta">{g.member_count} people</div>
+              </div>
+              <div className="end">
+                <span className={`amt ${r.cls}`} style={{ fontSize: 13 }}>
+                  {g.my_net === 0 ? 'settled' : g.my_net > 0 ? `+${money(g.my_net)}` : `−${money(g.my_net)}`}
+                </span>
+              </div>
+              <Icon name="chevron" className="chev" />
+            </a>
+          );
+        })}
+      </div>
+
+      <Everyone overview={overview} tag={(id) => tag(byId.get(id) ?? {})} />
+
+      <button className="fab" onClick={() => setSheet('add')}>
+        <Icon name="plus" /> Add expense
+      </button>
+
+      {sheet === 'add' && (
+        <PickTarget
+          groups={realGroups}
+          people={others}
+          tag={tag}
+          onGroup={(id) => { window.location.href = `/g/${guildId}/${id}?add=1`; }}
+          onPerson={(id) => openPerson(id, true)}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {sheet === 'person' && (
+        <PickTarget
+          title="Who with?"
+          people={others}
+          tag={tag}
+          onPerson={(id) => openPerson(id, false)}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {sheet === 'group' && (
+        <NewGroup guildId={guildId} members={others} tag={tag} onClose={() => setSheet(null)} />
+      )}
     </main>
   );
 }
 
-// Everyone's position across every group at once. Read-only on purpose:
-// settling happens inside a group, because a payment has to be recorded
-// against a specific ledger to stay auditable.
-function Overview({ overview }) {
+// The visitor's own position across the whole server, with the netted
+// payments that involve them.
+function Summary({ overview, tag }) {
   const { balances, transfers, groupCount, me } = overview;
-  const active = balances.filter((b) => b.net !== 0);
+  const mine = balances.find((b) => b.id === me)?.net ?? 0;
+  const name = (id) => {
+    const base = balances.find((b) => b.id === id)?.name ?? 'Someone';
+    return tag(id) ? `${base} (${tag(id)})` : base;
+  };
+  const involving = transfers.filter((t) => t.fromUserId === me || t.toUserId === me);
 
-  if (groupCount === 0) return null;
+  const tone = mine > 0 ? 'owed' : mine < 0 ? 'owe' : '';
+  const label = mine > 0 ? 'You are owed' : mine < 0 ? 'You owe' : 'You are';
 
   return (
-    <div className="card">
-      <div className="row" style={{ marginBottom: 12 }}>
-        <h2 style={{ margin: 0 }}>Everyone, across all groups and tabs</h2>
-        <div className="spacer" />
-        <span className="note">{groupCount} ledger{groupCount === 1 ? '' : 's'}</span>
+    <div className={`hero ${tone}`}>
+      <div className="label">{label}</div>
+      <div className="big num">{mine === 0 ? 'all square' : money(mine)}</div>
+      <div className="detail">
+        {groupCount === 0
+          ? 'Nothing recorded yet. Tap Add expense to start.'
+          : involving.length
+            ? involving.slice(0, 3).map((t) => (t.toUserId === me
+                ? `${name(t.fromUserId)} owes you ${money(t.amountCents)}`
+                : `you owe ${name(t.toUserId)} ${money(t.amountCents)}`)).join(' · ')
+            : `Across ${groupCount} group${groupCount === 1 ? '' : 's'} and tabs`}
       </div>
-
-      {active.length === 0 ? (
-        <p className="note">Everyone is square.</p>
-      ) : (
-        <>
-          {balances.map((b) => (
-            <div key={b.id} className="line">
-              {b.avatar && <img src={b.avatar} alt="" className="pill-avatar" />}
-              <span>{b.name}{b.id === me ? ' (you)' : ''}</span>
-              <span className={`amount ${b.net > 0 ? 'up' : b.net < 0 ? 'down' : ''}`}>
-                {b.net === 0 ? 'settled' : formatAmount(b.net)}
-              </span>
-            </div>
-          ))}
-
-          <h2 style={{ marginTop: 20 }}>Simplest way to settle everything</h2>
-          {transfers.map((t, i) => {
-            const name = (id) => balances.find((b) => b.id === id)?.name ?? 'Someone';
-            return (
-              <div key={i} className="line">
-                <span>
-                  <strong>{name(t.fromUserId)}</strong> pays <strong>{name(t.toUserId)}</strong>
-                </span>
-                <span className="amount">{formatAmount(t.amountCents)}</span>
-              </div>
-            );
-          })}
-          <p className="note" style={{ marginTop: 10 }}>
-            Netted across every group, so this can differ from any single group's
-            settle-up. Record payments inside the group they belong to.
-          </p>
-        </>
-      )}
     </div>
   );
 }
 
-function NewGroup({ guildId, members, onDone }) {
+// Everyone's position across every ledger in the server. Read-only: payments
+// are recorded inside the group or tab they belong to.
+function Everyone({ overview, tag }) {
+  const { balances, transfers, me } = overview;
+  const active = balances.filter((b) => b.net !== 0);
+  if (active.length === 0) return null;
+  const name = (id) => {
+    const base = balances.find((b) => b.id === id)?.name ?? 'Someone';
+    return tag(id) ? `${base} (${tag(id)})` : base;
+  };
+
+  return (
+    <>
+      <div className="section-head"><h2>Whole server</h2></div>
+      <details className="card fold">
+        <summary>
+          <span>Everyone&apos;s balance <span className="note">· {active.length} not settled</span></span>
+          <Icon name="chevron" />
+        </summary>
+        {active.map((b) => {
+          const s = standing(b.net);
+          return (
+            <div key={b.id} className="row-item static">
+              <Avatar src={b.avatar} name={b.name} />
+              <div className="main">
+                <div className="name">{b.name}{b.id === me ? ' (you)' : ''}</div>
+                {tag(b.id) && <div className="meta">{tag(b.id)}</div>}
+              </div>
+              <div className="end">
+                <span className="small">{s.small}</span>
+                <span className={`amt ${s.cls}`}>{s.amount}</span>
+              </div>
+            </div>
+          );
+        })}
+        <div className="day">Fewest payments to clear it all</div>
+        {transfers.map((t, i) => (
+          <div key={i} className="row-item static">
+            <div className="main">
+              <div className="name" style={{ fontWeight: 500 }}>
+                <strong>{name(t.fromUserId)}</strong> → <strong>{name(t.toUserId)}</strong>
+              </div>
+            </div>
+            <div className="end"><span className="amt">{money(t.amountCents)}</span></div>
+          </div>
+        ))}
+        <p className="note" style={{ padding: '4px 16px 14px', margin: 0 }}>
+          Netted across every group and tab. Record payments inside the one they belong to.
+        </p>
+      </details>
+    </>
+  );
+}
+
+function PickTarget({ title = 'Add an expense', groups = [], people, tag, onGroup, onPerson, onClose }) {
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+  const q = query.toLowerCase();
+  const matches = (s) => s.toLowerCase().includes(q);
+
+  const shownGroups = groups.filter((g) => matches(g.name));
+  const shownPeople = people.filter((p) => matches(p.name) || matches(p.username ?? ''));
+
+  async function pick(key, action) {
+    setBusy(key);
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err.message);
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Sheet title={title} onClose={onClose}>
+      <input
+        type="search"
+        placeholder="Search people or groups"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
+      {error && <div className="error">{error}</div>}
+
+      {shownGroups.length > 0 && <div className="day" style={{ paddingLeft: 4 }}>Groups</div>}
+      {shownGroups.map((g) => (
+        <button key={g.id} className="row-item" disabled={busy !== null} onClick={() => pick(`g${g.id}`, () => onGroup(g.id))}>
+          <div className="avatar tile">{g.name.slice(0, 1).toUpperCase()}</div>
+          <div className="main">
+            <div className="name">{g.name}</div>
+            <div className="meta">{g.member_count} people</div>
+          </div>
+          {busy === `g${g.id}` ? <span className="note">Opening…</span> : <Icon name="chevron" className="chev" />}
+        </button>
+      ))}
+
+      <div className="day" style={{ paddingLeft: 4 }}>People</div>
+      {shownPeople.length === 0 && <div className="empty">No one matches.</div>}
+      {shownPeople.map((p) => (
+        <button key={p.id} className="row-item" disabled={busy !== null} onClick={() => pick(p.id, () => onPerson(p.id))}>
+          <Avatar src={p.avatar} name={p.name} />
+          <div className="main">
+            <div className="name">{p.name}</div>
+            {tag(p) && <div className="meta">{tag(p)}</div>}
+          </div>
+          {busy === p.id ? <span className="note">Opening…</span> : <Icon name="chevron" className="chev" />}
+        </button>
+      ))}
+    </Sheet>
+  );
+}
+
+function NewGroup({ guildId, members, tag, onClose }) {
   const [name, setName] = useState('');
   const [picked, setPicked] = useState(new Set());
   const [query, setQuery] = useState('');
@@ -201,114 +317,50 @@ function NewGroup({ guildId, members, onDone }) {
       return next;
     });
 
-  async function submit(event) {
-    event.preventDefault();
+  async function submit() {
     setBusy(true);
     setError(null);
-    const res = await fetch('/api/groups', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guildId, name, memberIds: [...picked] }),
-    });
-    const data = await res.json();
-    setBusy(false);
-    if (!res.ok) return setError(data.error);
-    onDone();
-  }
-
-  const shown = members.filter((m) => m.name.toLowerCase().includes(query.toLowerCase()));
-
-  return (
-    <form onSubmit={submit} style={{ marginBottom: 20 }}>
-      {error && <div className="error">{error}</div>}
-      <input
-        type="search"
-        placeholder="Group name — Goa trip, flat rent, …"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        style={{ marginBottom: 10 }}
-      />
-      <input
-        type="search"
-        placeholder="Search members…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        style={{ marginBottom: 10 }}
-      />
-      <div className="pool">
-        {shown.map((m) => (
-          <button
-            type="button"
-            key={m.id}
-            className={`member${picked.has(m.id) ? ' selected' : ''}`}
-            onClick={() => toggle(m.id)}
-            style={{ background: 'none', border: '2px solid transparent', color: 'inherit', font: 'inherit' }}
-          >
-            <img src={m.avatar} alt="" />
-            <span>{m.name}</span>
-          </button>
-        ))}
-      </div>
-      <div className="row" style={{ marginTop: 12 }}>
-        <span className="note">{picked.size} selected — you are added automatically.</span>
-        <div className="spacer" />
-        <button className="btn" disabled={busy || !name.trim() || picked.size < 1}>
-          {busy ? 'Creating…' : 'Create group'}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-// Opens (or creates) the private tab with one person and jumps straight to it.
-function PickPerson({ guildId, members }) {
-  const [query, setQuery] = useState('');
-  const [busy, setBusy] = useState(null);
-  const [error, setError] = useState(null);
-
-  async function open(userId) {
-    setBusy(userId);
-    setError(null);
-    const res = await fetch('/api/direct', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guildId, userId }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setBusy(null);
-      return setError(data.error);
+    try {
+      const { id } = await postJSON('/api/groups', { guildId, name, memberIds: [...picked] });
+      window.location.href = `/g/${guildId}/${id}`;
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
     }
-    window.location.href = `/g/${guildId}/${data.id}`;
   }
 
-  const shown = members.filter((m) => m.name.toLowerCase().includes(query.toLowerCase()));
+  const q = query.toLowerCase();
+  const shown = members.filter((m) => m.name.toLowerCase().includes(q) || m.username?.toLowerCase().includes(q));
 
   return (
-    <div style={{ marginBottom: 20 }}>
+    <Sheet
+      title="New group"
+      onClose={onClose}
+      footer={
+        <button className="btn block" disabled={busy || !name.trim() || picked.size < 1} onClick={submit}>
+          {busy ? 'Creating…' : picked.size ? `Create with ${picked.size + 1} people` : 'Pick at least one person'}
+        </button>
+      }
+    >
       {error && <div className="error">{error}</div>}
-      <input
-        type="search"
-        placeholder="Who is it with?"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        style={{ marginBottom: 10 }}
-      />
-      <div className="pool">
-        {shown.map((m) => (
-          <button
-            type="button"
-            key={m.id}
-            className={`member${busy === m.id ? ' selected' : ''}`}
-            onClick={() => open(m.id)}
-            disabled={busy !== null}
-            style={{ background: 'none', border: '2px solid transparent', color: 'inherit', font: 'inherit' }}
-          >
-            <img src={m.avatar} alt="" />
-            <span>{m.name}</span>
-          </button>
-        ))}
-      </div>
-    </div>
+      <label className="field">
+        <span>Name</span>
+        <input type="text" placeholder="Lisbon trip, flat bills…" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      </label>
+      <label className="field" style={{ marginBottom: 8 }}>
+        <span>Who&apos;s in it? You&apos;re added automatically.</span>
+        <input type="search" placeholder="Search members" value={query} onChange={(e) => setQuery(e.target.value)} />
+      </label>
+      {shown.map((m) => (
+        <button key={m.id} type="button" className="row-item" onClick={() => toggle(m.id)}>
+          <Avatar src={m.avatar} name={m.name} />
+          <div className="main">
+            <div className="name">{m.name}</div>
+            {tag(m) && <div className="meta">{tag(m)}</div>}
+          </div>
+          <span className={`check${picked.has(m.id) ? ' on' : ''}`}>{picked.has(m.id) && <Icon name="check" />}</span>
+        </button>
+      ))}
+    </Sheet>
   );
 }

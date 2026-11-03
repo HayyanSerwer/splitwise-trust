@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { forgetServer, serverToRestore } from '@/lib/last-server';
+import { Avatar, DiscordLogo, Icon, SkeletonPage } from './ui';
 
 export default function Home() {
   const [state, setState] = useState({ status: 'loading' });
@@ -22,65 +23,80 @@ export default function Home() {
       .catch((err) => setState({ status: 'error', error: err.message }));
   }, []);
 
+  if (state.status === 'loading') return <SkeletonPage hero={false} rows={5} />;
+
+  if (state.status === 'anon') {
+    return (
+      <main className="wrap">
+        <div className="welcome" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 64px)' }}>
+          <img src="/icons/icon-192.png" alt="" />
+          <h1>Hisaab</h1>
+          <p>Split bills with your Discord friends and always know who owes who.</p>
+          <a className="btn discord" href="/api/auth/login">
+            <DiscordLogo /> Continue with Discord
+          </a>
+          <p className="note" style={{ marginTop: 20 }}>
+            We only read your server list, to find the ones the bot is in.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  const ready = state.guilds?.filter((g) => g.ready) ?? [];
+  const missing = state.guilds?.filter((g) => !g.ready) ?? [];
+
   return (
     <main className="wrap">
-      <h1>Hisaab</h1>
-      <p className="sub">Split expenses with your Discord friends, then post the tally straight to a channel.</p>
-
-      {state.status === 'loading' && <p className="note">Loading…</p>}
-
-      {state.status === 'anon' && (
-        <div className="card">
-          <h2>Sign in to continue</h2>
-          <p className="note" style={{ marginBottom: 16 }}>
-            We read your server list to find servers you share with the bot.
-          </p>
-          <a className="btn" href="/api/auth/login">Sign in with Discord</a>
+      <div className="brand">
+        <img src="/icons/icon-192.png" alt="" />
+        <div style={{ flex: 1 }}>
+          <div className="word">Hisaab</div>
+          {state.user && <div className="note">Signed in as {state.user}</div>}
         </div>
-      )}
+        {state.status === 'ready' && (
+          <form action="/api/auth/logout" method="post" onSubmit={forgetServer}>
+            <button className="icon-btn" type="submit" aria-label="Sign out" title="Sign out">
+              <Icon name="logout" />
+            </button>
+          </form>
+        )}
+      </div>
 
       {state.status === 'error' && <div className="error">{state.error}</div>}
 
       {state.status === 'ready' && (
         <>
-          <div className="row" style={{ marginBottom: 16 }}>
-            <span className="note">Signed in as {state.user}</span>
-            <div className="spacer" />
-            <form action="/api/auth/logout" method="post" onSubmit={forgetServer}>
-              <button className="btn ghost" type="submit">Sign out</button>
-            </form>
+          <div className="section-head"><h2>Your servers</h2></div>
+          <div className="card">
+            {ready.length === 0 && (
+              <div className="empty">The bot isn&apos;t in any of your servers yet. Invite it, then reload.</div>
+            )}
+            {ready.map((g) => (
+              <a key={g.id} className="row-item" href={`/g/${g.id}`}>
+                <Avatar src={g.icon} name={g.name} square />
+                <div className="main"><div className="name">{g.name}</div></div>
+                <Icon name="chevron" className="chev" />
+              </a>
+            ))}
           </div>
 
-          <div className="card">
-            <h2>Pick a server</h2>
-            {state.guilds.length === 0 && <p className="note">You are not in any servers.</p>}
-            <div className="guilds">
-              {state.guilds.map((g) => <Guild key={g.id} guild={g} />)}
-            </div>
-            <p className="note" style={{ marginTop: 14 }}>
-              Greyed-out servers do not have the bot yet. Invite it there and reload.
-            </p>
-          </div>
+          {missing.length > 0 && (
+            <details className="card fold">
+              <summary>
+                <span>Bot not added <span className="note">· {missing.length}</span></span>
+                <Icon name="chevron" />
+              </summary>
+              {missing.map((g) => (
+                <div key={g.id} className="row-item disabled">
+                  <Avatar src={g.icon} name={g.name} square />
+                  <div className="main"><div className="name">{g.name}</div></div>
+                </div>
+              ))}
+            </details>
+          )}
         </>
       )}
     </main>
   );
-}
-
-function Guild({ guild }) {
-  const inner = (
-    <>
-      {guild.icon
-        ? <img src={guild.icon} alt="" />
-        : <div className="fallback">{guild.name.slice(0, 2).toUpperCase()}</div>}
-      <div className="meta">
-        <div className="name">{guild.name}</div>
-        {!guild.ready && <div className="hint">bot not added</div>}
-      </div>
-    </>
-  );
-
-  return guild.ready
-    ? <a className="guild" href={`/g/${guild.id}`}>{inner}</a>
-    : <div className="guild disabled">{inner}</div>;
 }
