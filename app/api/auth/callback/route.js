@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { sessionCookie } from '@/lib/session';
+import { sessionCookie, tokenFields } from '@/lib/session';
 import { redirectUri } from '../login/route';
 
 export const dynamic = 'force-dynamic';
@@ -42,10 +42,9 @@ export async function GET(request) {
   const res = NextResponse.redirect(new URL('/', url));
   res.cookies.set(
     sessionCookie({
-      accessToken: token.access_token,
+      ...tokenFields(token),
       userId: me.id,
       name: me.global_name || me.username,
-      expiresAt: Date.now() + token.expires_in * 1000,
     }),
   );
   res.cookies.delete('hb_state');
