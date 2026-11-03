@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { formatAmount } from '@/lib/money';
+import { forgetServer, rememberServer } from '@/lib/last-server';
 
 export default function GuildPage({ params }) {
   const { guildId } = use(params);
@@ -14,13 +15,24 @@ export default function GuildPage({ params }) {
 
   async function load() {
     const [g, m, o] = await Promise.all([
-      fetch(`/api/groups?guildId=${guildId}`).then((r) => r.json()),
+      fetch(`/api/groups?guildId=${guildId}`).then((r) => {
+        // Signed out since last time: go to the home page to sign in.
+        if (r.status === 401) {
+          window.location.replace('/');
+          return new Promise(() => {});
+        }
+        return r.json();
+      }),
       fetch(`/api/guilds/${guildId}/members`).then((r) => r.json()),
       fetch(`/api/guilds/${guildId}/overview`).then((r) => r.json()),
     ]);
-    if (g.error) return setError(g.error);
-    if (m.error) return setError(m.error);
-    if (o.error) return setError(o.error);
+    const failed = g.error || m.error || o.error;
+    if (failed) {
+      // Don't keep reopening a server that no longer loads.
+      forgetServer();
+      return setError(failed);
+    }
+    rememberServer(guildId);
     setGroups(g.groups);
     setRoster(m);
     setOverview(o);
@@ -30,7 +42,14 @@ export default function GuildPage({ params }) {
     load().catch((err) => setError(err.message));
   }, [guildId]);
 
-  if (error) return <main className="wrap"><div className="error">{error}</div></main>;
+  if (error) {
+    return (
+      <main className="wrap">
+        <div className="error">{error}</div>
+        <a className="note" href="/">← all servers</a>
+      </main>
+    );
+  }
   if (!groups || !roster || !overview) return <main className="wrap"><p className="note">Loading…</p></main>;
 
   const tabs = groups.filter((g) => g.kind === 'direct');

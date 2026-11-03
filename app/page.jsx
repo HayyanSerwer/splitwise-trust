@@ -1,11 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { forgetServer, serverToRestore } from '@/lib/last-server';
 
 export default function Home() {
   const [state, setState] = useState({ status: 'loading' });
 
   useEffect(() => {
+    const last = serverToRestore();
+    if (last) {
+      window.location.replace(`/g/${last}`);
+      return;
+    }
     fetch('/api/guilds')
       .then(async (res) => {
         if (res.status === 401) return setState({ status: 'anon' });
@@ -40,7 +46,7 @@ export default function Home() {
           <div className="row" style={{ marginBottom: 16 }}>
             <span className="note">Signed in as {state.user}</span>
             <div className="spacer" />
-            <form action="/api/auth/logout" method="post">
+            <form action="/api/auth/logout" method="post" onSubmit={forgetServer}>
               <button className="btn ghost" type="submit">Sign out</button>
             </form>
           </div>
