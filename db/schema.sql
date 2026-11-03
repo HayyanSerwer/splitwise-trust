@@ -13,6 +13,17 @@ create table if not exists groups (
 
 create index if not exists groups_guild_idx on groups (guild_id);
 
+-- The live table predates the switch to euros and still defaulted to INR.
+alter table groups alter column currency set default 'EUR';
+
+-- A 'direct' group is a private two-person tab, so expenses with one friend
+-- reuse the whole group ledger. pair_key is the two user ids sorted and joined
+-- with ':', making the pair unique per server; it stays null for normal groups.
+alter table groups add column if not exists kind text not null default 'group';
+alter table groups add column if not exists pair_key text;
+
+create unique index if not exists groups_pair_idx on groups (guild_id, pair_key);
+
 create table if not exists group_members (
   group_id        bigint not null references groups (id) on delete cascade,
   discord_user_id text   not null,

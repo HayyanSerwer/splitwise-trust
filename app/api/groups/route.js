@@ -11,22 +11,42 @@ export const GET = route(async (request) => {
 
   await assertMembership(guildId, session.accessToken);
 
-  // Only groups the visitor is actually a member of.
+  const me = session.userId;
+
+  // Only groups the visitor is actually a member of. For direct tabs, `other`
+  // is the person on the far side; `my_net` is the visitor's balance there.
   const rows = await db()`
-    select g.id, g.name, g.currency, count(m.discord_user_id) as member_count
+    select g.id, g.name, g.currency, g.kind,
+           count(m.discord_user_id) as member_count,
+           (array_agg(json_build_object('id', m.discord_user_id, 'name', m.display_name, 'avatar', m.avatar_url))
+              filter (where m.discord_user_id <> ${me}))[1] as other,
+           coalesce((select sum(e.amount_cents) from expenses e
+                     where e.group_id = g.id and e.payer_id = ${me} and e.deleted_at is null), 0)
+         - coalesce((select sum(s.amount_cents) from expense_shares s join expenses e on e.id = s.expense_id
+                     where e.group_id = g.id and s.discord_user_id = ${me} and e.deleted_at is null), 0)
+         + coalesce((select sum(st.amount_cents) from settlements st
+                     where st.group_id = g.id and st.from_user_id = ${me} and st.deleted_at is null), 0)
+         - coalesce((select sum(st.amount_cents) from settlements st
+                     where st.group_id = g.id and st.to_user_id = ${me} and st.deleted_at is null), 0)
+           as my_net
     from groups g
     join group_members m on m.group_id = g.id
     where g.guild_id = ${guildId}
       and exists (
-        select 1 from group_members me
-        where me.group_id = g.id and me.discord_user_id = ${session.userId}
+        select 1 from group_members mine
+        where mine.group_id = g.id and mine.discord_user_id = ${me}
       )
     group by g.id
     order by g.created_at desc
   `;
 
   return Response.json({
-    groups: rows.map((g) => ({ ...g, id: int(g.id), member_count: int(g.member_count) })),
+    groups: rows.map((g) => ({
+      ...g,
+      id: int(g.id),
+      member_count: int(g.member_count),
+      my_net: int(g.my_net),
+    })),
   });
 });
 

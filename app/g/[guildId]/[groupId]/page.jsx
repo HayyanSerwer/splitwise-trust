@@ -30,14 +30,18 @@ export default function GroupPage({ params }) {
 
   const { group, members, balances, transfers, expenses, settlements, me } = data;
   const nameOf = (id) => members.find((m) => m.id === id)?.name ?? 'Someone';
+  const direct = group.kind === 'direct';
+  const other = direct ? members.find((m) => m.id !== me) : null;
 
   return (
     <main className="wrap">
       <div className="row" style={{ marginBottom: 6 }}>
-        <a className="note" href={`/g/${guildId}`}>← groups</a>
+        <a className="note" href={`/g/${guildId}`}>← back</a>
       </div>
-      <h1>{group.name}</h1>
-      <p className="sub">{members.length} people · {expenses.length} expenses</p>
+      <h1>{direct ? other?.name : group.name}</h1>
+      <p className="sub">
+        {direct ? 'Just the two of you' : `${members.length} people`} · {expenses.length} expenses
+      </p>
 
       <div className="card">
         <h2>Settle up</h2>
@@ -81,7 +85,7 @@ export default function GroupPage({ params }) {
         <PostToDiscord guildId={guildId} groupId={groupId} onDone={flash} />
       </div>
 
-      <AddExpense group={group} members={members} me={me} onDone={() => { load(); flash('Expense added'); }} />
+      <AddExpense group={group} members={members} me={me} direct={direct} onDone={() => { load(); flash('Expense added'); }} />
 
       <div className="card">
         <h2>History</h2>
@@ -91,7 +95,11 @@ export default function GroupPage({ params }) {
           <div key={`e${e.id}`} className="line">
             <span>
               <strong>{e.description}</strong>
-              <span className="note"> · {nameOf(e.payerId)} paid · split {e.shares.length} ways</span>
+              <span className="note">
+                {' · '}{nameOf(e.payerId)} paid · {e.shares.length === 1
+                  ? `for ${nameOf(e.shares[0].userId)}`
+                  : `split ${e.shares.length} ways`}
+              </span>
             </span>
             <span className="amount">{formatAmount(e.amountCents, group.currency)}</span>
             <button
@@ -134,11 +142,12 @@ async function post(url, body) {
   return data;
 }
 
-function AddExpense({ group, members, me, onDone }) {
+function AddExpense({ group, members, me, direct, onDone }) {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [payerId, setPayerId] = useState(me);
-  const [splitType, setSplitType] = useState('equal');
+  // A one-to-one tab is usually "I covered you", so default to that there.
+  const [splitType, setSplitType] = useState(direct ? 'full' : 'equal');
   const [participants, setParticipants] = useState(new Set(members.map((m) => m.id)));
   const [shares, setShares] = useState({});
   const [busy, setBusy] = useState(false);
@@ -156,15 +165,21 @@ function AddExpense({ group, members, me, onDone }) {
     setBusy(true);
     setError(null);
     try {
+      // "Owed in full" is an exact split with the whole amount on whoever
+      // didn't pay, so the server needs no special case for it.
+      const owedInFull = splitType === 'full';
+      const debtor = members.find((m) => m.id !== payerId)?.id;
       await post(`/api/groups/${group.id}/expenses`, {
         description,
         amount,
         payerId,
-        splitType,
+        splitType: owedInFull ? 'exact' : splitType,
         participants: [...participants],
-        shares: Object.fromEntries(
-          Object.entries(shares).filter(([id, v]) => participants.has(id) && v !== ''),
-        ),
+        shares: owedInFull
+          ? { [debtor]: amount }
+          : Object.fromEntries(
+              Object.entries(shares).filter(([id, v]) => participants.has(id) && v !== ''),
+            ),
       });
       setDescription('');
       setAmount('');
@@ -209,13 +224,14 @@ function AddExpense({ group, members, me, onDone }) {
         </select>
         <label className="note">Split</label>
         <select value={splitType} onChange={(e) => setSplitType(e.target.value)}>
+          {direct && <option value="full">owed in full by the other person</option>}
           <option value="equal">equally</option>
           <option value="exact">by exact amounts</option>
           <option value="shares">by shares</option>
         </select>
       </div>
 
-      {members.map((m) => (
+      {splitType !== 'full' && members.map((m) => (
         <div key={m.id} className="line">
           <label className="row" style={{ gap: 8 }}>
             <input type="checkbox" checked={participants.has(m.id)} onChange={() => toggle(m.id)} />

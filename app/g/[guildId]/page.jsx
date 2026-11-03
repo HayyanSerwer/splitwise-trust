@@ -10,6 +10,7 @@ export default function GuildPage({ params }) {
   const [overview, setOverview] = useState(null);
   const [error, setError] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [pickingPerson, setPickingPerson] = useState(false);
 
   async function load() {
     const [g, m, o] = await Promise.all([
@@ -32,15 +33,50 @@ export default function GuildPage({ params }) {
   if (error) return <main className="wrap"><div className="error">{error}</div></main>;
   if (!groups || !roster || !overview) return <main className="wrap"><p className="note">Loading…</p></main>;
 
+  const tabs = groups.filter((g) => g.kind === 'direct');
+  const realGroups = groups.filter((g) => g.kind !== 'direct');
+
   return (
     <main className="wrap">
       <div className="row" style={{ marginBottom: 6 }}>
         <a className="note" href="/">← all servers</a>
       </div>
       <h1>{roster.guild.name}</h1>
-      <p className="sub">Groups you are part of in this server.</p>
+      <p className="sub">Your groups and one-to-one tabs in this server.</p>
 
       <Overview overview={overview} />
+
+      <div className="card">
+        <div className="row" style={{ marginBottom: 12 }}>
+          <h2 style={{ margin: 0 }}>People</h2>
+          <div className="spacer" />
+          <button className="btn" onClick={() => setPickingPerson((v) => !v)}>
+            {pickingPerson ? 'Cancel' : 'Add expense with someone'}
+          </button>
+        </div>
+
+        {pickingPerson && (
+          <PickPerson guildId={guildId} members={roster.members.filter((m) => m.id !== overview.me)} />
+        )}
+
+        {tabs.length === 0 && !pickingPerson && (
+          <p className="note">No one-to-one tabs yet. Add an expense with someone without making a group.</p>
+        )}
+
+        {tabs.map((t) => (
+          <a key={t.id} className="line" href={`/g/${guildId}/${t.id}`} style={{ textDecoration: 'none' }}>
+            {t.other?.avatar && <img src={t.other.avatar} alt="" className="pill-avatar" />}
+            <span style={{ flex: 1 }}>{t.other?.name ?? t.name}</span>
+            <span className={`amount ${t.my_net > 0 ? 'up' : t.my_net < 0 ? 'down' : ''}`}>
+              {t.my_net === 0
+                ? 'settled'
+                : t.my_net > 0
+                  ? `owes you ${formatAmount(t.my_net)}`
+                  : `you owe ${formatAmount(-t.my_net)}`}
+            </span>
+          </a>
+        ))}
+      </div>
 
       <div className="card">
         <div className="row" style={{ marginBottom: 12 }}>
@@ -59,12 +95,12 @@ export default function GuildPage({ params }) {
           />
         )}
 
-        {groups.length === 0 && !creating && (
+        {realGroups.length === 0 && !creating && (
           <p className="note">No groups yet. Create one to start splitting.</p>
         )}
 
         <div className="guilds">
-          {groups.map((g) => (
+          {realGroups.map((g) => (
             <a key={g.id} className="guild" href={`/g/${guildId}/${g.id}`}>
               <div className="fallback">{g.name.slice(0, 2).toUpperCase()}</div>
               <div className="meta">
@@ -91,9 +127,9 @@ function Overview({ overview }) {
   return (
     <div className="card">
       <div className="row" style={{ marginBottom: 12 }}>
-        <h2 style={{ margin: 0 }}>Everyone, across all groups</h2>
+        <h2 style={{ margin: 0 }}>Everyone, across all groups and tabs</h2>
         <div className="spacer" />
-        <span className="note">{groupCount} group{groupCount === 1 ? '' : 's'}</span>
+        <span className="note">{groupCount} ledger{groupCount === 1 ? '' : 's'}</span>
       </div>
 
       {active.length === 0 ? (
@@ -202,5 +238,58 @@ function NewGroup({ guildId, members, onDone }) {
         </button>
       </div>
     </form>
+  );
+}
+
+// Opens (or creates) the private tab with one person and jumps straight to it.
+function PickPerson({ guildId, members }) {
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function open(userId) {
+    setBusy(userId);
+    setError(null);
+    const res = await fetch('/api/direct', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guildId, userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setBusy(null);
+      return setError(data.error);
+    }
+    window.location.href = `/g/${guildId}/${data.id}`;
+  }
+
+  const shown = members.filter((m) => m.name.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {error && <div className="error">{error}</div>}
+      <input
+        type="search"
+        placeholder="Who is it with?"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        style={{ marginBottom: 10 }}
+      />
+      <div className="pool">
+        {shown.map((m) => (
+          <button
+            type="button"
+            key={m.id}
+            className={`member${busy === m.id ? ' selected' : ''}`}
+            onClick={() => open(m.id)}
+            disabled={busy !== null}
+            style={{ background: 'none', border: '2px solid transparent', color: 'inherit', font: 'inherit' }}
+          >
+            <img src={m.avatar} alt="" />
+            <span>{m.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
