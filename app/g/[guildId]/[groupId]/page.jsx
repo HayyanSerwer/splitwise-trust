@@ -49,6 +49,8 @@ export default function GroupPage({ params }) {
   const person = (id) => members.find((m) => m.id === id) ?? { id, name: 'Someone' };
   const nameOf = (id) => (id === me ? 'You' : person(id).name);
   const direct = group.kind === 'direct';
+  const archived = Boolean(group.archived_at);
+  const settled = balances.every((b) => b.net === 0);
   const other = direct ? members.find((m) => m.id !== me) : null;
   const title = direct ? other?.name ?? 'Tab' : group.name;
 
@@ -76,11 +78,41 @@ export default function GroupPage({ params }) {
         members={members}
         mine={balances.find((b) => b.id === me)?.net ?? 0}
         currency={group.currency}
-        canSettle={transfers.length > 0}
+        canSettle={!archived && transfers.length > 0}
         onSettle={() => (direct && transfers.length === 1
           ? setSheet({ type: 'confirm-settle', transfer: transfers[0] })
           : setSheet({ type: 'settle' }))}
       />
+
+      {!direct && (archived || settled) && (
+        <div className="card" style={{ padding: 16, marginTop: 16 }}>
+          <p className="note" style={{ marginTop: 0 }}>
+            {archived ? 'This group is archived. Its history is saved.' : 'Everyone is settled. Archive this group to hide it from the main page.'}
+          </p>
+          <button className="btn small" onClick={() => setSheet({ type: 'archive' })}>
+            {archived ? 'Restore group' : 'Archive group'}
+          </button>
+        </div>
+      )}
+
+      {sheet?.type === 'archive' && (
+        <Confirm
+          title={archived ? 'Restore group?' : 'Archive group?'}
+          message={archived ? 'This group will appear on the main page again.' : 'This hides the group from the main page for everyone. Its history stays available at this link, where you can restore it.'}
+          confirmLabel={archived ? 'Restore group' : 'Archive group'}
+          onConfirm={async () => {
+            const res = await fetch(`/api/groups/${groupId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ archived: !archived }),
+            });
+            if (!res.ok) throw new Error((await res.json()).error ?? 'Could not update group');
+            await load();
+            flash(archived ? 'Group restored' : 'Group archived');
+          }}
+          onClose={() => setSheet(null)}
+        />
+      )}
 
       {!direct && (
         <>
@@ -113,11 +145,11 @@ export default function GroupPage({ params }) {
         onOpen={(e) => setSheet({ type: 'expense', expense: e })}
       />
 
-      <button className="fab" onClick={() => setSheet({ type: 'add' })}>
+      {!archived && <button className="fab" onClick={() => setSheet({ type: 'add' })}>
         <Icon name="plus" /> Add expense
-      </button>
+      </button>}
 
-      {sheet?.type === 'add' && (
+      {!archived && sheet?.type === 'add' && (
         <AddExpense
           group={group}
           members={members}
@@ -163,7 +195,7 @@ export default function GroupPage({ params }) {
           nameOf={nameOf}
           currency={group.currency}
           onClose={() => setSheet(null)}
-          onDelete={() => setSheet({ type: 'confirm-delete', expense: sheet.expense })}
+          onDelete={archived ? null : () => setSheet({ type: 'confirm-delete', expense: sheet.expense })}
         />
       )}
 
@@ -306,7 +338,7 @@ function ExpenseDetail({ expense, person, nameOf, currency, onClose, onDelete })
     <Sheet
       title={expense.description}
       onClose={onClose}
-      footer={<button className="btn danger block" onClick={onDelete}>Delete expense</button>}
+      footer={onDelete && <button className="btn danger block" onClick={onDelete}>Delete expense</button>}
     >
       <div style={{ textAlign: 'center', padding: '4px 0 16px' }}>
         <div style={{ fontSize: 40, fontWeight: 800 }} className="num">{money(expense.amountCents, currency)}</div>

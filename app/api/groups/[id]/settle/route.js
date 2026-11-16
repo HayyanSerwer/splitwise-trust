@@ -10,6 +10,7 @@ export const POST = route(async (request, { params }) => {
   const session = await requireSession();
   const { id } = await params;
   const { group, members } = await requireGroup(id, session);
+  if (group.archived_at) throw httpError('Restore this group before changing its ledger', 409);
 
   const { fromUserId, toUserId, amount } = await request.json();
   const memberIds = members.map((m) => m.id);

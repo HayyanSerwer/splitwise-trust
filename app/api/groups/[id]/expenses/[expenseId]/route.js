@@ -9,6 +9,7 @@ export const DELETE = route(async (_request, { params }) => {
   const session = await requireSession();
   const { id, expenseId } = await params;
   const { group } = await requireGroup(id, session);
+  if (group.archived_at) throw httpError('Restore this group before changing its ledger', 409);
 
   const rows = await db()`
     update expenses set deleted_at = now()

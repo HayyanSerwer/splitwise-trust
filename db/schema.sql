@@ -21,6 +21,7 @@ alter table groups alter column currency set default 'EUR';
 -- with ':', making the pair unique per server; it stays null for normal groups.
 alter table groups add column if not exists kind text not null default 'group';
 alter table groups add column if not exists pair_key text;
+alter table groups add column if not exists archived_at timestamptz;
 
 create unique index if not exists groups_pair_idx on groups (guild_id, pair_key);
 

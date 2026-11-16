@@ -32,6 +32,7 @@ export const GET = route(async (request) => {
     from groups g
     join group_members m on m.group_id = g.id
     where g.guild_id = ${guildId}
+      and g.archived_at is null
       and exists (
         select 1 from group_members mine
         where mine.group_id = g.id and mine.discord_user_id = ${me}
